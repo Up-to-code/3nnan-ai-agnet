@@ -1,14 +1,18 @@
-import { ChatInterface } from "@/components/chat-interface";
+"use client";
 
-export const metadata = {
-  title: "عنان AI - رفيقك العقاري",
-  description: "المساعد الذكي للبحث عن العقارات في السعودية",
-};
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.push("/chat/new");
+  }, [router]);
+
   return (
-    <div className="flex h-[100dvh] w-full bg-background overflow-hidden font-sans rtl" dir="rtl">
-      <ChatInterface />
+    <div className="flex items-center justify-center h-screen">
+      <div className="text-muted-foreground">جاري التوجيه...</div>
     </div>
   );
 }

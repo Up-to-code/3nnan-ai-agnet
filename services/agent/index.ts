@@ -78,6 +78,7 @@ interface AgentResponse {
   data?: unknown;
   toolsUsed: string[];
   modelUsed: string;
+  tokensUsed?: number;
 }
 
 // ============================================
@@ -298,6 +299,7 @@ export async function invokeAgent(
       type: "text",
       toolsUsed: [],
       modelUsed: "none",
+      tokensUsed: 0,
     };
   }
 
@@ -338,6 +340,33 @@ export async function invokeAgent(
 
       const choice = response.choices[0];
       const responseMessage = choice.message;
+      
+      // Extract token usage from response (handle different response structures)
+      let tokensUsed = 0;
+      if (response.usage?.total_tokens) {
+        tokensUsed = response.usage.total_tokens;
+      } else if (response.usage?.prompt_tokens || response.usage?.completion_tokens) {
+        // Calculate total if we have prompt and completion tokens separately
+        tokensUsed = (response.usage.prompt_tokens || 0) + (response.usage.completion_tokens || 0);
+      }
+      
+      // Enhanced logging - show full usage object, especially when tokens are 0
+      if (tokensUsed === 0) {
+        console.warn(`[Agent] No tokens extracted from OpenRouter response (user: ${config.userId})`);
+        console.warn(`[Agent] Full response.usage object:`, JSON.stringify(response.usage, null, 2));
+        console.warn(`[Agent] Response structure:`, {
+          hasUsage: !!response.usage,
+          usageKeys: response.usage ? Object.keys(response.usage) : [],
+          usageType: typeof response.usage,
+        });
+      } else {
+        console.log(`[Agent] Extracted ${tokensUsed} tokens from OpenRouter response (user: ${config.userId})`, {
+          total: response.usage?.total_tokens,
+          prompt: response.usage?.prompt_tokens,
+          completion: response.usage?.completion_tokens,
+          fullUsage: response.usage,
+        });
+      }
 
       // Process tool calls if any
       const toolsUsed: string[] = [];
@@ -390,6 +419,7 @@ export async function invokeAgent(
                 data: responseData,
                 toolsUsed,
                 modelUsed: modelId,
+                tokensUsed,
               };
             }
           }
@@ -402,6 +432,7 @@ export async function invokeAgent(
         data: responseData,
         toolsUsed,
         modelUsed: modelId,
+        tokensUsed,
       };
     } catch (error) {
       clearTimeout(timeoutId);
@@ -424,6 +455,7 @@ export async function invokeAgent(
       type: "text",
       toolsUsed: [],
       modelUsed: "error",
+      tokensUsed: 0,
     };
   }
 }
@@ -443,6 +475,7 @@ export async function* streamAgent(
       type: "text",
       toolsUsed: [],
       modelUsed: "none",
+      tokensUsed: 0,
     };
   }
 
@@ -473,6 +506,7 @@ export async function* streamAgent(
       );
 
       let fullContent = "";
+      let tokensUsed = 0;
 
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta?.content;
@@ -480,6 +514,31 @@ export async function* streamAgent(
           fullContent += delta;
           yield delta;
         }
+        // Track token usage from stream (OpenRouter sends usage in final chunk)
+        if (chunk.usage?.total_tokens) {
+          tokensUsed = chunk.usage.total_tokens;
+          console.log(`[Agent Stream] Updated token count: ${tokensUsed} tokens (user: ${config.userId})`, {
+            chunkUsage: chunk.usage,
+          });
+        } else if (chunk.usage?.prompt_tokens || chunk.usage?.completion_tokens) {
+          // Calculate total if we have prompt and completion tokens separately
+          const promptTokens = chunk.usage.prompt_tokens || 0;
+          const completionTokens = chunk.usage.completion_tokens || 0;
+          tokensUsed = promptTokens + completionTokens;
+          console.log(`[Agent Stream] Calculated token count from components: ${tokensUsed} tokens (user: ${config.userId})`, {
+            promptTokens,
+            completionTokens,
+            chunkUsage: chunk.usage,
+          });
+        }
+      }
+      
+      // Log final token count with enhanced logging
+      if (tokensUsed > 0) {
+        console.log(`[Agent Stream] Final token count: ${tokensUsed} tokens (user: ${config.userId})`);
+      } else {
+        console.warn(`[Agent Stream] No token usage detected in stream (user: ${config.userId})`);
+        console.warn(`[Agent Stream] Checked all chunks but found no usage data. This may indicate an issue with OpenRouter streaming response format.`);
       }
 
       clearTimeout(timeoutId);
@@ -489,6 +548,7 @@ export async function* streamAgent(
         type: "text",
         toolsUsed: [],
         modelUsed: modelId,
+        tokensUsed,
       };
     } catch (error) {
       clearTimeout(timeoutId);
@@ -502,6 +562,7 @@ export async function* streamAgent(
       type: "text",
       toolsUsed: [],
       modelUsed: "error",
+      tokensUsed: 0,
     };
   }
 }

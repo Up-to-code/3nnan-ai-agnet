@@ -99,6 +99,23 @@ class MockDBDataService implements DataService {
     return updated;
   }
 
+  async incrementUserTokens(userId: string, tokensToAdd: number): Promise<User | null> {
+    const user = this.users.get(userId);
+    if (!user) return null;
+
+    const currentTokens = (user.metadata?.tokensUsed as number) || 0;
+    const updated: User = {
+      ...user,
+      metadata: {
+        ...user.metadata,
+        tokensUsed: currentTokens + tokensToAdd,
+      },
+      updatedAt: new Date(),
+    };
+    this.users.set(userId, updated);
+    return updated;
+  }
+
   // ============================================
   // Conversation Operations
   // ============================================

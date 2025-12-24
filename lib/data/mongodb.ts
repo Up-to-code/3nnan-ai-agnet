@@ -99,19 +99,120 @@ class MongoDBDataService implements DataService {
       email: data.email.toLowerCase(),
       name: data.name,
       plan: data.plan || "free",
+      metadata: {
+        tokensUsed: 0,
+      },
     });
     return user.toJSON() as unknown as User;
   }
 
   async updateUser(id: string, data: Partial<User>): Promise<User | null> {
     try {
+      // Handle nested metadata updates properly
+      const updateData: Record<string, unknown> = { ...data };
+      
+      // If metadata is being updated, use $set for nested fields
+      if (data.metadata && typeof data.metadata === 'object') {
+        const metadataUpdate: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(data.metadata)) {
+          metadataUpdate[`metadata.${key}`] = value;
+        }
+        // Remove metadata from top level and use $set for nested fields
+        delete updateData.metadata;
+        const doc = await UserModel.findByIdAndUpdate(
+          id,
+          { $set: metadataUpdate, ...updateData },
+          { new: true, runValidators: true }
+        ).lean();
+        return transformDoc<User>(doc as Record<string, unknown> | null);
+      }
+      
+      // Regular update for non-metadata fields
       const doc = await UserModel.findByIdAndUpdate(
         id,
-        { ...data },
+        { ...updateData },
         { new: true, runValidators: true }
       ).lean();
       return transformDoc<User>(doc as Record<string, unknown> | null);
-    } catch {
+    } catch (error) {
+      console.error("Error updating user:", error);
+      return null;
+    }
+  }
+
+  // Atomic increment for tokens (prevents race conditions)
+  async incrementUserTokens(userId: string, tokensToAdd: number): Promise<User | null> {
+    try {
+      // Validate user ID format
+      if (!userId || typeof userId !== 'string') {
+        console.error(`[MongoDB] Invalid user ID format: ${userId} (type: ${typeof userId})`);
+        return null;
+      }
+
+      // Validate tokensToAdd
+      if (typeof tokensToAdd !== 'number' || tokensToAdd <= 0 || !Number.isFinite(tokensToAdd)) {
+        console.error(`[MongoDB] Invalid tokensToAdd value: ${tokensToAdd} (type: ${typeof tokensToAdd})`);
+        return null;
+      }
+
+      console.log(`[MongoDB] Attempting to increment tokens for user ${userId}: +${tokensToAdd}`);
+
+      // First, check if user exists and get current token count
+      const user = await UserModel.findById(userId).lean();
+      if (!user) {
+        console.error(`[MongoDB] User ${userId} not found for token increment`);
+        console.error(`[MongoDB] User ID type: ${typeof userId}, length: ${userId.length}`);
+        return null;
+      }
+
+      // Get current tokens (handle missing metadata)
+      const currentTokens = (user.metadata?.tokensUsed as number) || 0;
+      const newTokens = currentTokens + tokensToAdd;
+
+      console.log(`[MongoDB] Current tokens: ${currentTokens}, adding: ${tokensToAdd}, new total: ${newTokens}`);
+
+      // Use $set to ensure metadata.tokensUsed exists and is updated atomically
+      // This is safer than $inc when the field might not exist
+      const doc = await UserModel.findByIdAndUpdate(
+        userId,
+        { 
+          $set: { 
+            'metadata.tokensUsed': newTokens 
+          } 
+        },
+        { 
+          new: true, 
+          runValidators: true 
+        }
+      ).lean();
+
+      if (!doc) {
+        console.error(`[MongoDB] Failed to update tokens for user ${userId} - findByIdAndUpdate returned null`);
+        return null;
+      }
+
+      const transformed = transformDoc<User>(doc as Record<string, unknown> | null);
+      if (!transformed) {
+        console.error(`[MongoDB] Failed to transform document for user ${userId}`);
+        return null;
+      }
+
+      const finalTokens = (transformed.metadata?.tokensUsed as number) || 0;
+      
+      // Verify the update was successful
+      if (finalTokens !== newTokens) {
+        console.error(`[MongoDB] Token update mismatch! Expected: ${newTokens}, Got: ${finalTokens} for user ${userId}`);
+      } else {
+        console.log(`[MongoDB] Successfully updated tokens for user ${userId}: ${currentTokens} + ${tokensToAdd} = ${finalTokens}`);
+      }
+
+      return transformed;
+    } catch (error) {
+      console.error(`[MongoDB] Error updating user tokens for ${userId}:`, error);
+      if (error instanceof Error) {
+        console.error(`[MongoDB] Error message: ${error.message}`);
+        console.error(`[MongoDB] Error stack: ${error.stack}`);
+      }
       return null;
     }
   }

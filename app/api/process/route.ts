@@ -115,6 +115,41 @@ export async function POST(request: NextRequest) {
       preferredModel: model === "pro" ? "pro" : "standard",
     });
 
+    // Track token usage (atomic increment to prevent race conditions)
+    // Use user.id (MongoDB ID) for database operations
+    const tokensUsed = agentResponse.tokensUsed || 0;
+    
+    // Validation: Log when tokens are 0 to identify extraction issues
+    if (tokensUsed === 0 && user) {
+      console.warn(`[Process API] WARNING: tokensUsed is 0 for user ${user.id}`);
+      console.warn(`[Process API] Agent response structure:`, {
+        hasTokensUsed: 'tokensUsed' in agentResponse,
+        tokensUsedValue: agentResponse.tokensUsed,
+        agentResponseKeys: Object.keys(agentResponse),
+        modelUsed: agentResponse.modelUsed,
+        contentLength: agentResponse.content?.length || 0,
+      });
+      console.warn(`[Process API] This indicates tokens were not extracted from the API response. Check agent service logs.`);
+    }
+    
+    if (tokensUsed > 0 && user) {
+      console.log(`[Process API] Tracking ${tokensUsed} tokens for user ${user.id} (request userId: ${userId})`);
+      const updatedUser = await dataService.incrementUserTokens(user.id, tokensUsed);
+      if (updatedUser) {
+        const newTotal = (updatedUser.metadata?.tokensUsed as number) || 0;
+        console.log(`[Process API] User ${user.id} tokens updated: ${newTotal} total`);
+      } else {
+        console.error(`[Process API] Failed to update tokens for user ${user.id}`);
+        console.error(`[Process API] This indicates a database save issue. Check MongoDB logs.`);
+      }
+    } else {
+      if (!user) {
+        console.warn(`[Process API] No user found for token tracking (userId: ${userId})`);
+      } else {
+        console.log(`[Process API] No tokens to track (tokensUsed: ${tokensUsed})`);
+      }
+    }
+
     // Save AI response
     await dataService.addMessage({
       conversationId: currentConversationId,

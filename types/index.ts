@@ -9,11 +9,23 @@
 
 export type UserPlan = "free" | "paid";
 
+export interface LoginHistoryEntry {
+  timestamp: Date;
+  ip?: string;
+  userAgent?: string;
+  device?: string;
+}
+
 export interface User {
   id: string;
   email: string;
   name: string;
   plan: UserPlan;
+  phone?: string;
+  location?: string;
+  avatar?: string;
+  lastLoginAt?: Date;
+  loginHistory?: LoginHistoryEntry[];
   createdAt: Date;
   updatedAt: Date;
   metadata?: Record<string, unknown>;

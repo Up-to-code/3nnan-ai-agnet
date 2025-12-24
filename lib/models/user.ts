@@ -29,6 +29,33 @@ const userSchema = new Schema<UserDocument>(
       enum: ["free", "paid"],
       default: "free",
     },
+    phone: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    location: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    avatar: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    lastLoginAt: {
+      type: Date,
+      default: null,
+    },
+    loginHistory: [
+      {
+        timestamp: { type: Date, default: Date.now },
+        ip: String,
+        userAgent: String,
+        device: String,
+      },
+    ],
     metadata: {
       type: Schema.Types.Mixed,
       default: {},

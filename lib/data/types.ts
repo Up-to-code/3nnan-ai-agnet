@@ -39,6 +39,9 @@ export interface DataService {
   
   /** Update user */
   updateUser(id: string, data: Partial<User>): Promise<User | null>;
+  
+  /** Atomically increment user tokens (prevents race conditions) */
+  incrementUserTokens(userId: string, tokensToAdd: number): Promise<User | null>;
 
   // ============================================
   // Conversation Operations

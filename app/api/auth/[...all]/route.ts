@@ -6,6 +6,7 @@
 import { auth } from "@/auth";
 import { toNextJsHandler } from "better-auth/next-js";
 import { NextRequest, NextResponse } from "next/server";
+import { connectDB } from "@/lib/db";
 
 // ============================================
 // Handler Setup
@@ -76,6 +77,16 @@ async function handleRequest(
   req: NextRequest,
   handlerFn: (req: NextRequest) => Promise<Response>
 ): Promise<Response> {
+  // Ensure MongoDB connection is active before handling request
+  if (process.env.USE_MONGODB === "true" && process.env.MONGODB_URI) {
+    try {
+      await connectDB();
+    } catch (error) {
+      console.error("[Auth] Failed to connect to MongoDB:", error);
+      // Continue anyway - the handler might still work if connection was already established
+    }
+  }
+  
   try {
     const response = await handlerFn(req);
     
@@ -86,6 +97,23 @@ async function handleRequest(
         const text = await response.clone().text();
         if (checkResponseForMongoError(text)) {
           console.error("[Auth] MongoDB error detected in response");
+          
+          // Attempt to reconnect if topology is closed
+          if (text.toLowerCase().includes("topology is closed") || text.toLowerCase().includes("mongotopologyclosederror")) {
+            try {
+              await connectDB();
+              console.log("[Auth] Reconnected to MongoDB, retrying...");
+              // Retry the request once
+              try {
+                return await handlerFn(req);
+              } catch (retryError) {
+                console.error("[Auth] Retry failed:", retryError);
+              }
+            } catch (reconnectError) {
+              console.error("[Auth] Reconnection failed:", reconnectError);
+            }
+          }
+          
           return createErrorResponse(ERROR_MESSAGES.database, 503);
         }
       } catch {
@@ -105,6 +133,18 @@ async function handleRequest(
     
     if (isMongoDBError(error)) {
       console.error("[Auth] MongoDB error caught");
+      
+      // Attempt to reconnect if topology is closed
+      const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      if (errorMessage.includes("topology is closed") || errorMessage.includes("mongotopologyclosederror")) {
+        try {
+          await connectDB();
+          console.log("[Auth] Reconnected to MongoDB");
+        } catch (reconnectError) {
+          console.error("[Auth] Reconnection failed:", reconnectError);
+        }
+      }
+      
       return createErrorResponse(ERROR_MESSAGES.database, 503);
     }
     

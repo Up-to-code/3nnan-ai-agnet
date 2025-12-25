@@ -18,7 +18,7 @@ const databaseAdapter = mongodbAdapter(getDb());
 // ============================================
 
 export const auth = betterAuth({
-  database: databaseAdapter,
+  database: mongodbAdapter(getDb()), // Use direct adapter, connection will be ensured on first use
   
   // Email & Password Authentication
   emailAndPassword: {
